@@ -1,6 +1,9 @@
 import { DetectionRequest, DetectionResponse } from './dtos'
 import { TraceCall } from '../../types/http.types'
 
+/**
+ * Represents a specific rugpull risk found in bytecode or trace.
+ */
 interface RiskFinding {
     type: string
     severity: 'HIGH' | 'MEDIUM' | 'LOW'
@@ -9,30 +12,40 @@ interface RiskFinding {
 }
 
 export class DetectionService {
+    // Opcode-level red flags
     private static readonly OPCODES = {
-        SELFDESTRUCT: 'ff',
-        DELEGATECALL: 'f4',
+        SELFDESTRUCT: 'ff',     // Opcode that can destroy contracts
+        DELEGATECALL: 'f4',     // Opcode allowing untrusted code execution
     }
 
+    // Function signatures commonly used in rugpulls
     private static readonly FUNCTION_SIGS = {
-        TRANSFER: 'a9059cbb',
-        APPROVE: '095ea7b3',
-        TRANSFER_OWNERSHIP: 'f2fde38b', // no 0x prefix — we strip it from trace call inputs
-        PAUSE: '8456cb59',
-        MINT: '40c10f19',
+        TRANSFER: 'a9059cbb',             // ERC-20 transfer(address,uint256)
+        APPROVE: '095ea7b3',              // ERC-20 approve(address,uint256)
+        TRANSFER_OWNERSHIP: 'f2fde38b',   // transferOwnership(address)
+        PAUSE: '8456cb59',                // pause()
+        MINT: '40c10f19',                 // mint(address,uint256)
     }
 
+    /**
+     * Main detection logic.
+     * Analyzes bytecode and trace calls to detect rugpull patterns.
+     */
     public static detect(request: DetectionRequest): DetectionResponse {
         const bytecode = (request.bytecode || '').toLowerCase()
         const flags: RiskFinding[] = []
 
         // -------- BYTECODE STATIC ANALYSIS --------
+
+        // Detect risky opcodes
         if (bytecode.includes(this.OPCODES.SELFDESTRUCT)) {
             flags.push({ type: 'SELFDESTRUCT', severity: 'HIGH', reason: 'Contains SELFDESTRUCT opcode - risky for fund drain' })
         }
         if (bytecode.includes(this.OPCODES.DELEGATECALL)) {
             flags.push({ type: 'DELEGATECALL', severity: 'HIGH', reason: 'Uses DELEGATECALL - allows injecting external logic' })
         }
+
+        // Detect suspicious function selectors
         if (bytecode.includes(this.FUNCTION_SIGS.TRANSFER)) {
             flags.push({ type: 'TRANSFER', severity: 'LOW', reason: 'Includes ERC-20 transfer() function' })
         }
@@ -50,11 +63,13 @@ export class DetectionService {
         }
 
         // -------- TRACE-BASED BEHAVIORAL ANALYSIS --------
+
         const traceCalls = request.trace?.calls ?? []
+
         traceCalls.forEach((call, i) => {
             const input = (call.input || '').toLowerCase()
 
-            // Detect ETH transfers to contract
+            // Detect large ETH transfers to the contract
             const value = BigInt(call.value || '0')
             const targetAddress = request.address?.toLowerCase()
             if (value > 0n && call.to?.toLowerCase() === targetAddress) {
@@ -66,7 +81,7 @@ export class DetectionService {
                 })
             }
 
-            // Detect transferOwnership in trace
+            // Detect usage of transferOwnership via trace input
             if (input.startsWith('0x' + this.FUNCTION_SIGS.TRANSFER_OWNERSHIP)) {
                 flags.push({
                     type: 'TRACE_OWNERSHIP_TRANSFER',
@@ -77,11 +92,15 @@ export class DetectionService {
             }
         })
 
+        // -------- RESULT AGGREGATION --------
+
         const detected = flags.length > 0
+
         const message = detected
             ? `RugLens flagged ${flags.length} risks:\n` + flags.map(f => `- [${f.severity}] ${f.reason}`).join('\n')
             : 'No rugpull indicators detected'
 
+        // Return structured detection result
         return new DetectionResponse({
             request,
             detectionInfo: {

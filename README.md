@@ -58,8 +58,7 @@ npm install
 ### Run the Detector
 
 ```bash
-npm run build
-npm start
+npm run dev
 ```
 
 ---
@@ -67,7 +66,7 @@ npm start
 ## 🧪 Run Tests
 
 ```bash
-npm test
+npx jest
 ```
 
 Unit tests include:
