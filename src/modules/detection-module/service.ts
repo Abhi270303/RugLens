@@ -1,60 +1,93 @@
 import { DetectionRequest, DetectionResponse } from './dtos'
+import { TraceCall } from '../../types/http.types'
 
-/**
- * DetectionService
- *
- * Core class that processes a DetectionRequest and returns a DetectionResponse.
- * This is where your custom rugpull logic is implemented.
- */
+interface RiskFinding {
+    type: string
+    severity: 'HIGH' | 'MEDIUM' | 'LOW'
+    reason: string
+    traceIndex?: number
+}
+
 export class DetectionService {
-    /**
-     * Static detection method
-     * Analyzes the smart contract bytecode for potential rugpull indicators
-     *
-     * @param request DetectionRequest — contains metadata and bytecode of the contract
-     * @returns DetectionResponse — flags if malicious, with reason and severity
-     */
+    private static readonly OPCODES = {
+        SELFDESTRUCT: 'ff',
+        DELEGATECALL: 'f4',
+    }
+
+    private static readonly FUNCTION_SIGS = {
+        TRANSFER: 'a9059cbb',
+        APPROVE: '095ea7b3',
+        TRANSFER_OWNERSHIP: 'f2fde38b', // no 0x prefix — we strip it from trace call inputs
+        PAUSE: '8456cb59',
+        MINT: '40c10f19',
+    }
+
     public static detect(request: DetectionRequest): DetectionResponse {
-        // Ensure bytecode is available and normalized to lowercase for matching
         const bytecode = (request.bytecode || '').toLowerCase()
+        const flags: RiskFinding[] = []
 
-        // Initialize a list to collect any suspicious indicators found
-        const flags: string[] = []
-
-        // --- 🚩 RUGPULL INDICATORS ---
-        
-        // Check for 'SELFDESTRUCT' opcode (hex: 0xff) — risky for fund drains
-        if (bytecode.includes('ff')) {
-            flags.push('Contains SELFDESTRUCT opcode')
+        // -------- BYTECODE STATIC ANALYSIS --------
+        if (bytecode.includes(this.OPCODES.SELFDESTRUCT)) {
+            flags.push({ type: 'SELFDESTRUCT', severity: 'HIGH', reason: 'Contains SELFDESTRUCT opcode - risky for fund drain' })
+        }
+        if (bytecode.includes(this.OPCODES.DELEGATECALL)) {
+            flags.push({ type: 'DELEGATECALL', severity: 'HIGH', reason: 'Uses DELEGATECALL - allows injecting external logic' })
+        }
+        if (bytecode.includes(this.FUNCTION_SIGS.TRANSFER)) {
+            flags.push({ type: 'TRANSFER', severity: 'LOW', reason: 'Includes ERC-20 transfer() function' })
+        }
+        if (bytecode.includes(this.FUNCTION_SIGS.APPROVE)) {
+            flags.push({ type: 'APPROVE', severity: 'LOW', reason: 'Includes ERC-20 approve() function' })
+        }
+        if (bytecode.includes(this.FUNCTION_SIGS.TRANSFER_OWNERSHIP)) {
+            flags.push({ type: 'OWNERSHIP', severity: 'MEDIUM', reason: 'transferOwnership function present' })
+        }
+        if (bytecode.includes(this.FUNCTION_SIGS.PAUSE)) {
+            flags.push({ type: 'PAUSABLE', severity: 'MEDIUM', reason: 'pause() function found' })
+        }
+        if (bytecode.includes(this.FUNCTION_SIGS.MINT)) {
+            flags.push({ type: 'MINT', severity: 'HIGH', reason: 'mint() function found - potential for token inflation' })
         }
 
-        // Check for 'DELEGATECALL' opcode (hex: 0xf4) — allows code injection risk
-        if (bytecode.includes('f4')) {
-            flags.push('Uses DELEGATECALL opcode')
-        }
+        // -------- TRACE-BASED BEHAVIORAL ANALYSIS --------
+        const traceCalls = request.trace?.calls ?? []
+        traceCalls.forEach((call, i) => {
+            const input = (call.input || '').toLowerCase()
 
-        // Check for 'transfer(address,uint256)' — ERC-20 transfer function (sig: 0xa9059cbb)
-        if (bytecode.includes('a9059cbb')) {
-            flags.push('Includes ERC-20 transfer() function')
-        }
+            // Detect ETH transfers to contract
+            const value = BigInt(call.value || '0')
+            const targetAddress = request.address?.toLowerCase()
+            if (value > 0n && call.to?.toLowerCase() === targetAddress) {
+                flags.push({
+                    type: 'FUNDS_IN',
+                    severity: 'MEDIUM',
+                    reason: `Contract received ${value} wei from ${call.from}`,
+                    traceIndex: i,
+                })
+            }
 
-        // Check for 'approve(address,uint256)' — ERC-20 approve function (sig: 0x095ea7b3)
-        if (bytecode.includes('095ea7b3')) {
-            flags.push('Includes ERC-20 approve() function')
-        }
+            // Detect transferOwnership in trace
+            if (input.startsWith('0x' + this.FUNCTION_SIGS.TRANSFER_OWNERSHIP)) {
+                flags.push({
+                    type: 'TRACE_OWNERSHIP_TRANSFER',
+                    severity: 'MEDIUM',
+                    reason: `transferOwnership() called at trace index ${i}`,
+                    traceIndex: i,
+                })
+            }
+        })
 
-        // --- 🧠 Evaluation ---
+        const detected = flags.length > 0
+        const message = detected
+            ? `RugLens flagged ${flags.length} risks:\n` + flags.map(f => `- [${f.severity}] ${f.reason}`).join('\n')
+            : 'No rugpull indicators detected'
 
-        // Mark contract as malicious if any rugpull indicators are found
-        const isMalicious = flags.length > 0
-
-        // Construct and return the final DetectionResponse object
         return new DetectionResponse({
             request,
             detectionInfo: {
-                detected: isMalicious, // true or false
-                message: isMalicious ? flags.join('; ') : 'No rugpull indicators detected',
-            },
+                detected,
+                message
+            }
         })
     }
 }

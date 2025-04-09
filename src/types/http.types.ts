@@ -9,3 +9,11 @@ export enum HTTP_STATUS_CODES {
     NOT_FOUND = 404,
     FORBIDDEN = 403,
 }
+
+export interface TraceCall {
+    from: string
+    to: string
+    value: string
+    input: string
+    op?: string // DELEGATECALL, SELFDESTRUCT, etc.
+}

@@ -1,4 +1,6 @@
 import { Type } from 'class-transformer'
+import { TraceCall } from '../../../../types/http.types'
+
 import {
     IsArray,
     IsEthereumAddress,
@@ -158,5 +160,7 @@ export class DetectionRequest {
     @IsString()
     @IsOptional()
     bytecode?: string
+    traceCalls?: TraceCall[]
+    address?: string
 }
 

@@ -1,39 +1,51 @@
-
 # 🛡️ RugLens
 
-**RugLens** is a smart contract bytecode analyzer that detects rugpull patterns in real-time. Built using [Venn Network](https://venn.build), it empowers security teams with post-deployment protection through opcode-level analysis.
+**RugLens** is an advanced real-time smart contract threat detector built for the [Venn Network](https://venn.build). It scans deployed bytecode and transaction traces to identify high-risk rugpull behaviors — before damage occurs.
 
 ---
 
-## 🔍 Vision
+## 🔍 Overview
 
-RugLens detects malicious smart contracts in real-time by analyzing bytecode for rugpull patterns, enabling proactive on-chain protection and continuous threat monitoring within the Venn Network.
+Rugpulls often embed malicious behavior inside contract bytecode or abuse runtime calls post-deployment. RugLens solves this by combining:
 
----
-
-## ⚙️ Features
-
-- Detects high-risk opcodes like `SELFDESTRUCT` and `DELEGATECALL`
-- Flags ERC-20 `transfer` and `approve` abuse vectors
-- Bytecode normalization and pattern matching
-- Structured `DetectionRequest` and `DetectionResponse` models
-- Built-in test suite using Jest
-- Ready for Docker or manual Node.js deployment
+- 🔬 Static bytecode analysis for malicious opcodes
+- 🧠 Function signature scanning for risky admin logic
+- 🛰️ Trace-based behavior analysis for live threats (ETH drains, function misuse)
 
 ---
 
-## 🧠 Detection Logic
+## 🧠 What RugLens Detects
+
+| Type                  | Example Risk                             | Detection Method        |
+|-----------------------|-------------------------------------------|--------------------------|
+| `SELFDESTRUCT`        | Kill-switch to drain funds                | Bytecode opcode match    |
+| `DELEGATECALL`        | Arbitrary code injection                  | Bytecode opcode match    |
+| `transferOwnership()` | Stealth ownership transfer                | Signature + trace match  |
+| `mint()`              | Infinite supply risk                      | Signature match          |
+| ETH inflow            | Large unexpected ETH sent to contract     | Trace pattern detection  |
+
+---
+
+## ⚙️ How It Works
+
+RugLens exposes a single static method:
 
 ```ts
-if (bytecode.includes('ff')) flags.push('Contains SELFDESTRUCT opcode');
-if (bytecode.includes('f4')) flags.push('Uses DELEGATECALL opcode');
-if (bytecode.includes('a9059cbb')) flags.push('Includes ERC-20 transfer()');
-if (bytecode.includes('095ea7b3')) flags.push('Includes ERC-20 approve()');
+DetectionService.detect(request: DetectionRequest): DetectionResponse
+```
+
+It returns a response like:
+
+```ts
+{
+  detected: true,
+  message: "RugLens flagged 3 risks:\n- [HIGH] Contains SELFDESTRUCT opcode\n- [MEDIUM] transferOwnership() called at trace index 0"
+}
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quickstart
 
 ### Clone & Install
 
@@ -43,50 +55,66 @@ cd ruglens
 npm install
 ```
 
-### Run Detector
+### Run the Detector
 
 ```bash
-npm run dev
+npm run build
 npm start
-```
-
-### Test
-
-```bash
-npx jest
 ```
 
 ---
 
-## 📦 Project Structure
+## 🧪 Run Tests
 
-- `service.ts` — Core detection logic
-- `detect.ts` — Entry point for Venn detector runtime
-- `detect-request.ts` / `detect-response.ts` — DTO definitions
-- `tests/` — Unit tests with sample payloads
+```bash
+npm test
+```
+
+Unit tests include:
+- Bytecode analysis (opcodes, function selectors)
+- Trace simulations (ownership transfers, value flows)
+- Clean contract verification
+
+---
+
+## 🧩 Project Structure
+
+```
+src/
+├── modules/
+│   └── detection-module/
+│       ├── service.ts       # Detection logic
+│       ├── dtos/            # Request/response schemas
+│       └── types/           # Custom trace typing
+tests/
+└── app.spec.ts              # Full detection test suite
+```
 
 ---
 
 ## 🛠 Built With
 
 - TypeScript
-- Express.js
-- Jest
-- Venn SDK-compatible architecture
+- Jest (test suite)
+- ts-node & reflect-metadata
+- Designed for Venn Security Infrastructure
+
+---
+
+## 🔒 Designed For
+
+- Smart contract auditors
+- On-chain monitoring teams
+- Post-deployment threat detection
+- Continuous contract verification
 
 ---
 
 ## 📎 Resources
 
-- [Venn Detector Docs](https://docs.venn.build/venn-network/getting-started/security-teams/build-custom-detector)
-- [Join the Venn Security Team](https://www.venn.build/join/security-team)
-- [Telegram Support](https://t.me/vennbuilders)
+- [Venn Documentation](https://docs.venn.build)
+- [Telegram: Venn Builders](https://t.me/vennbuilders)
+- [How to Build Custom Detectors](https://docs.venn.build/venn-network/getting-started/security-teams/build-custom-detector)
+
 
 ---
-
-## 🧢 License
-
-MIT © Your Team Name
-
----
-
